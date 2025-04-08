@@ -24,7 +24,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # === Load Data ===
-data = pd.read_csv("data/crude_oil_macro_data.csv")
+data = pd.read_csv("crude_oil_macro_data.csv")
 data['Date'] = pd.to_datetime(data['Date'])
 data.set_index('Date', inplace=True)
 
