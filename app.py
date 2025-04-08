@@ -1,57 +1,65 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import pickle
-from tensorflow.keras.models import load_model
 import matplotlib.pyplot as plt
-from datetime import timedelta
+import joblib
+from tensorflow.keras.models import load_model
+import numpy as np
 
-# Load ARIMA model
-with open('arima_model.pkl', 'rb') as f:
-    arima_model = pickle.load(f)
+# === Set up UI ===
+st.set_page_config(page_title="Crude Oil Price Forecasting", layout="centered")
+st.title("\U0001F4C8 Crude Oil Price Forecasting")
+st.markdown("""
+<style>
+    .main {
+        background-color: #f4f1ee;
+    }
+    h1 {
+        color: #0b3d91;
+    }
+    .stButton>button {
+        background-color: #0b3d91;
+        color: white;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Load LSTM model and scaler
-lstm_model = load_model('lstm_model.h5')
-with open('scaler.pkl', 'rb') as f:
-    scaler = pickle.load(f)
+# === Load Data ===
+data = pd.read_csv("data/crude_oil_macro_data.csv")
+data['Date'] = pd.to_datetime(data['Date'])
+data.set_index('Date', inplace=True)
 
-# Load dataset
-data = pd.read_csv('crude_oil_dataset.csv', parse_dates=['Date'], index_col='Date')
+# === Display data ===
+if st.checkbox("Show Raw Data"):
+    st.write(data.tail())
 
-# Streamlit UI
-st.set_page_config(page_title="Crude Oil Price Forecasting", page_icon=":oil_drum:", layout="wide")
-st.title("Crude Oil Price Forecasting")
-st.sidebar.header("User Input")
+# === Load models ===
+model_option = st.selectbox("Select Forecasting Model", ["ARIMA", "LSTM"])
 
-# User input for forecasting
-forecast_days = st.sidebar.slider('Days of forecast:', 1, 30, 7)
+if model_option == "ARIMA":
+    model = joblib.load("arima_model.pkl")
+    steps = st.slider("Forecast Steps (Days)", 30, 180, 90)
+    forecast = model.forecast(steps=steps)
+    st.line_chart(forecast)
+    st.success("Forecast plotted using ARIMA")
 
-# ARIMA Forecasting
-arima_forecast = arima_model.forecast(steps=forecast_days)
-arima_forecast_dates = [data.index[-1] + timedelta(days=i) for i in range(1, forecast_days + 1)]
+elif model_option == "LSTM":
+    model = load_model("lstm_model.h5")
+    scaler = joblib.load("lstm_scaler.save")
 
-# LSTM Forecasting
-seq_length = 60
-lstm_input = data['Crude_Oil_Price'].values[-seq_length:]
-lstm_input = scaler.transform(lstm_input.reshape(-1, 1))
-lstm_input = np.reshape(lstm_input, (1, seq_length, 1))
+    st.write("Forecasting next 30 days using LSTM")
+    prices = data['Close_CL=F'].fillna(method='ffill').values.reshape(-1, 1)
+    scaled_prices = scaler.transform(prices)
 
-lstm_forecast = []
-for _ in range(forecast_days):
-    pred = lstm_model.predict(lstm_input)
-    lstm_forecast.append(pred[0][0])
-    lstm_input = np.append(lstm_input[:, 1:, :], [[pred]], axis=1)
+    window = 60
+    last_window = scaled_prices[-window:]
+    predictions = []
 
-lstm_forecast = scaler.inverse_transform(np.array(lstm_forecast).reshape(-1, 1))
-lstm_forecast_dates = [data.index[-1] + timedelta(days=i) for i in range(1, forecast_days + 1)]
+    for _ in range(30):
+        pred_input = last_window.reshape(1, window, 1)
+        pred = model.predict(pred_input)
+        predictions.append(pred[0][0])
+        last_window = np.append(last_window[1:], pred, axis=0)
 
-# Plot results
-st.subheader('Forecast Results')
-fig, ax = plt.subplots()
-ax.plot(data.index, data['Crude_Oil_Price'], label='Historical Prices')
-ax.plot(arima_forecast_dates, arima_forecast, label='ARIMA Forecast')
-ax.plot(lstm_forecast_dates, lstm_forecast, label='LSTM Forecast')
-ax.set_xlabel('Date')
-ax.set_ylabel('Price')
-ax.legend()
-st.pyplot(fig)
+    predictions = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+    st.line_chart(predictions)
+    st.success("Forecast plotted using LSTM")
